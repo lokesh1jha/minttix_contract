@@ -1,94 +1,101 @@
-// import * as anchor from "@coral-xyz/anchor";
-// import { Program } from "@coral-xyz/anchor";
-// import { NftEventPlatform } from "../target/types/nft_event_platform";
+import * as anchor from '@project-serum/anchor';
+import { Program, AnchorProvider, web3 } from '@project-serum/anchor';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { assert } from 'chai';
+// import { NftEventPlatform } from '../target/types/nft_event_platform'; // Adjust path to the generated IDL file
 
-// describe("minttix_contract", () => {
-//   // Configure the client to use the local cluster.
-//   anchor.setProvider(anchor.AnchorProvider.env());
+describe('nft_event_platform', () => {
+  const provider = AnchorProvider.env();
+  anchor.setProvider(provider);
 
-//   const program = anchor.workspace.NftEventPlatform as Program<NftEventPlatform>;
+  // Load the IDL
+  const idl = require('../target/idl/nft_event_platform.json');
 
-//   it("Is initialized!", async () => {
-//     // Add your test here.
-//     const tx = await program.methods.initialize().rpc();
-//     console.log("Your transaction signature", tx);
-//   });
-// });
+  // Create a Program object
+  const program = new Program(idl, new PublicKey("55fbYsCqEjoiUDBKjDMqkKn3SkmVErexhTmfkpPz8ySV"), provider);
 
+  let collectionPDA: PublicKey;
+  let collectionBump: number;
+  let assetPDA: PublicKey;
+  let assetBump: number;
+  const eventOrganizer = provider.wallet.publicKey;
+  const ticketPrice = new anchor.BN(1000000); // 1 SOL in lamports
+  const maxTickets = new anchor.BN(100); // Max 100 tickets
 
-/*
-import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { MinttixContract } from "../target/types/minttix_contract";
-import { Keypair } from "@solana/web3.js";
+  interface MyBaseCollectionV1 {
+    name: Uint8Array;
+    uri: Uint8Array;
+    ticketPrice: anchor.BN;
+    maxTickets: anchor.BN;
+    organizer: PublicKey;
+    bump: number;
+  }
 
-describe("nft_event_platform", () => {
-  // Configure the client to use the local cluster.
-  anchor.setProvider(anchor.AnchorProvider.env());
+  // Payer is the event organizer
+  const payer = provider.wallet;
+  const buyer = anchor.web3.Keypair.generate(); // A Keypair has a secretKey
 
-  const program = anchor.workspace.MinttixContract as Program<MinttixContract>;
+  const collectionName = 'Event Name';
+  const collectionUri = 'https://example.com/metadata';
 
-  // Set up variables for testing
-  let collectionKeypair: Keypair;
-  let collectionAccount: anchor.web3.PublicKey;
-  const name = "Test Event";
-  const uri = "https://example.com/collection";
-  const ticketPrice = 1000000; // 1 SOL in lamports
-  const maxTickets = 10;
+  before(async () => {
+    [collectionPDA, collectionBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("collection"), eventOrganizer.toBuffer()],
+      program.programId
+    );
 
-  it("Creates a collection!", async () => {
-    collectionKeypair = Keypair.generate();
-    collectionAccount = collectionKeypair.publicKey;
-
-    const tx = await program.methods
-      .createCollection(name, uri, ticketPrice, maxTickets)
-      .accounts({
-        signer: anchor.getProvider().wallet.publicKey,
-        payer: anchor.getProvider().wallet.publicKey,
-        collection: collectionAccount,
-        mplCoreProgram: anchor.web3.SYSVAR_RENT_PUBKEY, // Replace with actual Metaplex core program ID
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([collectionKeypair])
-      .rpc();
-
-    console.log("Create Collection Transaction Signature", tx);
-
-    // Verify the collection account was created
-    const collectionData = await program.account.myBaseCollectionV1.fetch(collectionAccount);
-    expect(collectionData.name).toEqual(Buffer.from(name).slice(0, 32));
-    expect(collectionData.uri).toEqual(Buffer.from(uri).slice(0, 256));
-    expect(collectionData.ticketPrice.toString()).toEqual(ticketPrice.toString());
-    expect(collectionData.maxTickets.toString()).toEqual(maxTickets.toString());
-    expect(collectionData.organizer.toString()).toEqual(anchor.getProvider().wallet.publicKey.toString());
+    [assetPDA, assetBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("asset"), collectionPDA.toBuffer()],
+      program.programId
+    );
   });
 
-  it("Mints an NFT for a ticket!", async () => {
-    const ticketKeypair = Keypair.generate();
-    const ticketAccount = ticketKeypair.publicKey;
+  it('Creates a collection (event)', async () => {
+    await program.methods
+      .createCollection(collectionName, collectionUri, ticketPrice, maxTickets)
+      .accounts({
+        signer: eventOrganizer,
+        payer: payer.publicKey,
+        collection: collectionPDA,
+        mplCoreProgram: new PublicKey('MetaPlex Core Program ID'),
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([buyer])
+      .rpc();
 
-    const tx = await program.methods
+    const collectionAccount = await program.account.myBaseCollectionV1.fetch(collectionPDA) as MyBaseCollectionV1;
+
+    assert.strictEqual(collectionAccount.ticketPrice.toString(), ticketPrice.toString());
+    assert.strictEqual(collectionAccount.maxTickets.toString(), maxTickets.toString());
+    assert.strictEqual(collectionAccount.organizer.toString(), eventOrganizer.toString());
+
+    assert.strictEqual(Buffer.from(collectionAccount.name).toString('utf-8').trim(), collectionName);
+    assert.strictEqual(Buffer.from(collectionAccount.uri).toString('utf-8').trim(), collectionUri);
+  });
+
+  it('Buys a ticket (mints an NFT)', async () => {
+    const buyer = anchor.web3.Keypair.generate();
+
+    const airdropSig = await provider.connection.requestAirdrop(buyer.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+    await provider.connection.confirmTransaction(airdropSig);
+
+    await program.methods
       .buyTicket()
       .accounts({
-        buyer: anchor.getProvider().wallet.publicKey,
-        collection: collectionAccount,
-        asset: ticketAccount,
-        organizer: anchor.getProvider().wallet.publicKey, // Assuming organizer is the same for this test
-        platform: anchor.getProvider().wallet.publicKey, // Assuming platform is the same for this test
-        mplCoreProgram: anchor.web3.SYSVAR_RENT_PUBKEY, // Replace with actual Metaplex core program ID
-        systemProgram: anchor.web3.SystemProgram.programId,
+        buyer: buyer.publicKey,
+        collection: collectionPDA,
+        asset: assetPDA,
+        organizer: eventOrganizer,
+        platform: provider.wallet.publicKey,
+        mplCoreProgram: new PublicKey('MetaPlex Core Program ID'),
+        systemProgram: SystemProgram.programId,
       })
-      .signers([ticketKeypair])
+      .signers([buyer])
       .rpc();
 
-    console.log("Mint NFT Transaction Signature", tx);
+    const collectionAccountAfter = await program.account.myBaseCollectionV1.fetch(collectionPDA);
 
-    // Optionally, you can assert that the NFT was minted or the state has changed.
-    // Here, you could fetch the newly created asset to ensure it exists.
-    // For example:
-    // const assetData = await program.account.myAssetAccount.fetch(ticketAccount);
-    // expect(assetData).toBeDefined(); // Ensure the asset was created
+    // Optionally, you can add other assertions here, like checking the funds transferred or NFT minted
+    console.log("Ticket purchased successfully, NFT minted.");
   });
 });
-
-*/
