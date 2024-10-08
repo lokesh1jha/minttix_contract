@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-minttix_contract = "CexKDgzDQD6FUhyPreDnfADrZkheWA48y3gkeyZsPtE9"
+minttix_contract = "55fbYsCqEjoiUDBKjDMqkKn3SkmVErexhTmfkpPz8ySV"
 
 [registry]
 url = "https://api.apr.dev"

@@ -75,6 +75,10 @@ To buy a ticket, call the `buy_ticket` function in the smart contract. This func
 
 Contributions are welcome! If you have suggestions for improvements or new features, please open an issue or submit a pull request.
 
+## Issues
+
+Link: [Solana deploy "account data too small for instruction"](https://stackoverflow.com/questions/71267943/solana-deploy-account-data-too-small-for-instruction)
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
